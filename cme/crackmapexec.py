@@ -1,30 +1,31 @@
 #!/usr/bin/env python2
 
-#This must be one of the first imports or else we get threading error on completion
-from gevent import monkey
-monkey.patch_all()
-
 from gevent.pool import Pool
 from gevent import sleep
 from cme.logger import setup_logger, setup_debug_logger, CMEAdapter
 from cme.helpers.logger import highlight
-from cme.targetparser import parse_targets
+from cme.helpers.misc import identify_target_file
+from cme.parsers.ip import parse_targets
+from cme.parsers.nmap import parse_nmap_xml
+from cme.parsers.nessus import parse_nessus_file
 from cme.cli import gen_cli_args
 from cme.loaders.protocol_loader import protocol_loader
 from cme.loaders.module_loader import module_loader
 from cme.servers.http import CMEServer
 from cme.first_run import first_run_setup
 from cme.context import Context
-from getpass import getuser
 from pprint import pformat
 from ConfigParser import ConfigParser
+import cme.helpers.powershell as powershell
 import cme
+import shutil
 import webbrowser
 import sqlite3
 import random
 import os
 import sys
 import logging
+
 
 def main():
 
@@ -46,7 +47,7 @@ def main():
     config = ConfigParser()
     config.read(os.path.join(cme_path, 'cme.conf'))
 
-    module  = None
+    module = None
     module_server = None
     targets = []
     jitter = None
@@ -98,11 +99,26 @@ def main():
     if hasattr(args, 'target') and args.target:
         for target in args.target:
             if os.path.exists(target):
-                with open(target, 'r') as target_file:
-                    for target_entry in target_file:
-                        targets.extend(parse_targets(target_entry))
+                target_file_type = identify_target_file(target)
+                if target_file_type == 'nmap':
+                    targets.extend(parse_nmap_xml(target, args.protocol))
+                elif target_file_type == 'nessus':
+                    targets.extend(parse_nessus_file(target, args.protocol))
+                else:
+                    with open(target, 'r') as target_file:
+                        for target_entry in target_file:
+                            targets.extend(parse_targets(target_entry))
             else:
                 targets.extend(parse_targets(target))
+
+    # The following is a quick hack for the powershell obfuscation functionality, I know this is yucky
+    if hasattr(args, 'clear_obfscripts') and args.clear_obfscripts:
+        shutil.rmtree(os.path.expanduser('~/.cme/obfuscated_scripts/'))
+        os.mkdir(os.path.expanduser('~/.cme/obfuscated_scripts/'))
+        logger.success('Cleared cached obfuscated PowerShell scripts')
+
+    if hasattr(args, 'obfs') and args.obfs:
+        powershell.obfuscate_ps_scripts = True
 
     p_loader = protocol_loader()
     protocol_path = p_loader.get_protocols()[args.protocol]['path']
@@ -118,6 +134,8 @@ def main():
     db_connection.isolation_level = None
     db = protocol_db_object(db_connection)
 
+    setattr(protocol_object, 'config', config)
+
     if hasattr(args, 'module'):
 
         loader = module_loader(args, db, logger)
@@ -125,23 +143,23 @@ def main():
         if args.list_modules:
             modules = loader.get_modules()
 
-            for m in modules:
-                logger.info('{:<25} {}'.format(m, modules[m]['description']))
+            for name, props in sorted(modules.items()):
+                logger.info('{:<25} {}'.format(name, props['description']))
             sys.exit(0)
 
         elif args.module and args.show_module_options:
 
             modules = loader.get_modules()
-            for m in modules.keys():
-                if args.module.lower() == m.lower():
-                    logger.info('{} module options:\n{}'.format(m, modules[m]['options']))
+            for name, props in modules.items():
+                if args.module.lower() == name.lower():
+                    logger.info('{} module options:\n{}'.format(name, props['options']))
             sys.exit(0)
 
         elif args.module:
             modules = loader.get_modules()
-            for m in modules.keys():
-                if args.module.lower() == m.lower():
-                    module = loader.init_module(modules[m]['path'])
+            for name, props in modules.items():
+                if args.module.lower() == name.lower():
+                    module = loader.init_module(props['path'])
                     setattr(protocol_object, 'module', module)
                     break
 
@@ -150,12 +168,12 @@ def main():
                 exit(1)
 
             if getattr(module, 'opsec_safe') is False:
-                ans = raw_input(highlight('[!] Module is not opsec safe, are you sure you want to run this? [Y/n]', 'red'))
+                ans = raw_input(highlight('[!] Module is not opsec safe, are you sure you want to run this? [Y/n] ', 'red'))
                 if ans.lower() not in ['y', 'yes', '']:
                     sys.exit(1)
 
             if getattr(module, 'multiple_hosts') is False and len(targets) > 1:
-                ans = raw_input(highlight("[!] Running this module on multiple hosts doesn't really make any sense, are you sure you want to continue? [Y/n]", 'red'))
+                ans = raw_input(highlight("[!] Running this module on multiple hosts doesn't really make any sense, are you sure you want to continue? [Y/n] ", 'red'))
                 if ans.lower() not in ['y', 'yes', '']:
                     sys.exit(1)
 
@@ -192,4 +210,5 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    if module_server: module_server.shutdown()
+    if module_server:
+        module_server.shutdown()

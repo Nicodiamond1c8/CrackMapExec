@@ -70,7 +70,7 @@ class PassPolDump:
     def __init__(self, connection):
         self.logger = connection.logger
         self.addr = connection.host
-        self.protocol = connection.args.smb_port
+        self.protocol = connection.args.port
         self.username = connection.username
         self.password = connection.password
         self.domain = connection.domain
@@ -81,9 +81,12 @@ class PassPolDump:
         self.doKerberos = False
         self.protocols = PassPolDump.KNOWN_PROTOCOLS.keys()
         self.pass_pol = {}
-        
+
         if self.hash is not None:
-            self.lmhash, self.nthash = self.hash.split(':')
+            if self.hash.find(':') != -1:
+                self.lmhash, self.nthash = self.hash.split(':')
+            else:
+                self.nthash = self.hash
         
         if self.password is None:
             self.password = ''

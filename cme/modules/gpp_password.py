@@ -1,8 +1,8 @@
-from Crypto.Cipher import AES
+import xml.etree.ElementTree as ET
+from Cryptodome.Cipher import AES
 from base64 import b64decode
 from binascii import unhexlify
 from StringIO import StringIO
-import xml.etree.ElementTree as ET
 
 class CMEModule:
     '''
@@ -25,9 +25,14 @@ class CMEModule:
         for share in shares:
             if share['name'] == 'SYSVOL' and 'READ' in share['access']:
 
+                context.log.success('Found SYSVOL share')
+                context.log.info('Searching for potential XML files containing passwords')
+
                 paths = connection.spider('SYSVOL', pattern=['Groups.xml','Services.xml','Scheduledtasks.xml','DataSources.xml','Printers.xml','Drives.xml'])
 
                 for path in paths:
+                    context.log.info('Found {}'.format(path))
+
                     buf = StringIO()
                     connection.conn.getFile('SYSVOL', path, buf.write)
                     xml = ET.fromstring(buf.getvalue())

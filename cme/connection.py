@@ -1,6 +1,7 @@
 import logging
-from traceback import format_exc
+# from traceback import format_exc
 from gevent.lock import BoundedSemaphore
+from gevent.socket import gethostbyname
 from functools import wraps
 from cme.logger import CMEAdapter
 from cme.context import Context
@@ -9,26 +10,33 @@ sem = BoundedSemaphore(1)
 global_failed_logins = 0
 user_failed_logins = {}
 
+
 def requires_admin(func):
     def _decorator(self, *args, **kwargs):
         if self.admin_privs is False: return
         return func(self, *args, **kwargs)
     return wraps(func)(_decorator)
 
+
 class connection(object):
 
     def __init__(self, args, db, host):
         self.args = args
         self.db = db
-        self.host = host
+        self.hostname = host
         self.conn = None
         self.admin_privs = False
-        self.hostname = None
         self.logger = None
         self.password = None
         self.username = None
         self.failed_logins = 0
         self.local_ip = None
+
+        try:
+            self.host = gethostbyname(self.hostname)
+        except Exception as e:
+            logging.debug('Error resolving hostname {}: {}'.format(self.hostname, e))
+            return
 
         self.proto_flow()
 
@@ -64,29 +72,7 @@ class connection(object):
             self.print_host_info()
             self.login()
             if hasattr(self.args, 'module') and self.args.module:
-                module_logger = CMEAdapter(extra={
-                                                  'module': self.module.name.upper(),
-                                                  'host': self.host,
-                                                  'port': self.args.smb_port,
-                                                  'hostname': self.hostname
-                                                 })
-
-                context = Context(self.db, module_logger, self.args)
-                context.localip  = self.local_ip
-
-                if hasattr(self.module, 'on_request') or hasattr(self.module, 'has_response'):
-                    self.server.connection = self
-                    self.server.context.localip = self.local_ip
-
-                if hasattr(self.module, 'on_login'):
-                    self.module.on_login(context, self)
-
-                if self.admin_privs and hasattr(self.module, 'on_admin_login'):
-                    self.module.on_admin_login(context, self)
-
-                if (not hasattr(self.module, 'on_request') and not hasattr(self.module, 'has_response')) and hasattr(self.module, 'on_shutdown'):
-                    self.module.on_shutdown(context, self)
-
+                self.call_modules()
             else:
                 self.call_cmd_args()
 
@@ -96,6 +82,30 @@ class connection(object):
                 if v is not False and v is not None:
                     logging.debug('Calling {}()'.format(k))
                     getattr(self, k)()
+
+    def call_modules(self):
+        module_logger = CMEAdapter(extra={
+                                          'module': self.module.name.upper(),
+                                          'host': self.host,
+                                          'port': self.args.port,
+                                          'hostname': self.hostname
+                                         })
+
+        context = Context(self.db, module_logger, self.args)
+        context.localip  = self.local_ip
+
+        if hasattr(self.module, 'on_request') or hasattr(self.module, 'has_response'):
+            self.server.connection = self
+            self.server.context.localip = self.local_ip
+
+        if hasattr(self.module, 'on_login'):
+            self.module.on_login(context, self)
+
+        if self.admin_privs and hasattr(self.module, 'on_admin_login'):
+            self.module.on_admin_login(context, self)
+
+        if (not hasattr(self.module, 'on_request') and not hasattr(self.module, 'has_response')) and hasattr(self.module, 'on_shutdown'):
+            self.module.on_shutdown(context, self)
 
     def inc_failed_login(self, username):
         global global_failed_logins
@@ -182,7 +192,7 @@ class connection(object):
                                     password.seek(0)
 
             elif type(user) is not file:
-                    if self.args.hash:
+                    if hasattr(self.args, 'hash') and self.args.hash:
                         with sem:
                             for ntlm_hash in self.args.hash:
                                 if type(ntlm_hash) is not file:
@@ -200,10 +210,16 @@ class connection(object):
                             for password in self.args.password:
                                 if type(password) is not file:
                                     if not self.over_fail_limit(user):
-                                        if self.plaintext_login(self.domain, user, password): return True
+                                        if hasattr(self.args, 'domain'):
+                                            if self.plaintext_login(self.domain, user, password): return True
+                                        else:
+                                            if self.plaintext_login(user, password): return True
 
                                 elif type(password) is file:
                                     for f_pass in password:
                                         if not self.over_fail_limit(user):
-                                            if self.plaintext_login(self.domain, user, f_pass.strip()): return True
+                                            if hasattr(self.args, 'domain'):
+                                                if self.plaintext_login(self.domain, user, f_pass.strip()): return True
+                                            else:
+                                                if self.plaintext_login(user, f_pass.strip()): return True
                                     password.seek(0)

